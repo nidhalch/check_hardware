@@ -25,7 +25,7 @@ class DM_redfish():
          iLO_host = "https://bbxplayer-22.oob.dc3.dailymotion.com"
          self.ILO_comp_list= ("Cpu", "Memory", "storage", "SmartStorageBattery", "Temperatures")
          ILO_login_account = "root"
-         ILO_login_password = "asdfg90p"
+         ILO_login_password = "xxxx"
          self._headers = {"Content-type": "application/json;charset=utf-8",
          "Accept": "application/json;charset=utf-8",
          "OData-Version": "4.0"
