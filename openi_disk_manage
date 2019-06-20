@@ -78,7 +78,6 @@ class Storcli():
             if not "disk" in self.oiodisk:
                 self.oiodisk = "disk{}".format(self.oiodisk)
             self.oio_disk = self.oiodisk
-            print(self.oio_disk)
             self.device = self.found_mount_p(self.oio_disk).split(" ")[0]
             if not self.device:
                 with open("/etc/fstab") as fstab:
@@ -86,26 +85,25 @@ class Storcli():
                         if self.oiodisk in line:
                             if self.oiodisk == (line.split(" ")[1]).split("/")[6]:
                                 uuid = (line.split("UUID=")[1]).split(" ")[0]
-                                print(uuid)
                                 self.device = subprocess.getoutput("blkid |grep \"{}\" |awk \'{{print $1}}\' |cut -d\':\' -f1".format(uuid))
-                                print("blkid |grep \"{}\" |awk \'{{print $1}}\' |cut -d\':\' -f1".format(uuid))
-                                print(self.device)
                                 if not self.device:
                                     self.error_exit('Err : cant found disk' )
-            self.disk_state = subprocess.getoutput("gridinit_cmd status |grep \"rawx-{}\"".format(self.oio_disk)).split()[1]
-            self.stop_start_oio_srv("stop", self.oio_disk, self.device, self.mount_point)
-            self.rawx_status = self.check_rawx_status(self.oio_disk)
-            if self.rawx_status not in  ("Broken", "Down"):
-                self.error_exit('Err : cant wipe disk : rawx-{} is Up'.format(self.oio_disk))
-            self.validation(self.disk, self.device, self.disk_uuid_old, self.oio_disk)
-            self.wipe_disk(self.fstype, self.device, self.oio_disk, self.disk_uuid_old)
-            self.stop_start_oio_srv("start", self.oio_disk, self.device, self.mount_point)
-            time.sleep(10)
-            self.rawx_status = self.check_rawx_status(self.oio_disk)
-            print(self.rawx_status)
-            if self.rawx_status in  ("Broken", "Down"):
-                self.error_exit('Err : cant wipe disk : rawx-{} is Down'.format(self.oio_disk))
-            self.rebuild_oio(self.hostname, self.oio_disk, self.ip, self.date, self.hour, self.mount_point)
+            self.mount_point = self.found_mount_p(self.device)
+            self.disk_uuid_old = uuid
+        self.disk_state = subprocess.getoutput("gridinit_cmd status |grep \"rawx-{}\"".format(self.oio_disk)).split()[1]
+        self.stop_start_oio_srv("stop", self.oio_disk, self.device, self.mount_point)
+        self.rawx_status = self.check_rawx_status(self.oio_disk)
+        if self.rawx_status not in  ("Broken", "Down"):
+            self.error_exit('Err : cant wipe disk : rawx-{} is Up'.format(self.oio_disk))
+        self.validation(self.disk, self.device, self.disk_uuid_old, self.oio_disk)
+        self.wipe_disk(self.fstype, self.device, self.oio_disk, self.disk_uuid_old)
+        self.stop_start_oio_srv("start", self.oio_disk, self.device, self.mount_point)
+        time.sleep(10)
+        self.rawx_status = self.check_rawx_status(self.oio_disk)
+        print(self.rawx_status)
+        if self.rawx_status in  ("Broken", "Down"):
+            self.error_exit('Err : cant wipe disk : rawx-{} is Down'.format(self.oio_disk))    
+        self.rebuild_oio(self.hostname, self.oio_disk, self.ip, self.date, self.hour, self.mount_point)
 
     def error_exit(self,message):
         '''
