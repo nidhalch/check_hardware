@@ -17,6 +17,9 @@ import time
 import datetime
 import sys
 
+class UuidError(Exception):
+   """Base class for other exceptions"""
+   pass
 class Storcli():
     '''
     '''
@@ -33,6 +36,7 @@ class Storcli():
         self.replace = None
         self.wipe = None
         self.disk_uuid_old = None
+        self.get_device = False
         self.gridinit_cmd = ['DAILYMOTION-rawx', 'DAILYMOTION-rdir', 'DAILYMOTION-oio-blob-indexer']
         self.hostname = socket.gethostname()
         self.fstype = 'ext4'
@@ -75,21 +79,30 @@ class Storcli():
             self.disk_uuid_old = self.get_uuid(self.device)
 
         if args.wipe and args.oio:
-            if not "disk" in self.oiodisk:
-                self.oiodisk = "disk{}".format(self.oiodisk)
+            if "disk" in self.oiodisk:
+                self.oiodisk = self.oiodisk.split("disk")
             self.oio_disk = self.oiodisk
-            self.device = self.found_mount_p(self.oio_disk).split(" ")[0]
-            if not self.device:
-                with open("/etc/fstab") as fstab:
-                    for line in fstab:
-                        if self.oiodisk in line:
-                            if self.oiodisk == (line.split(" ")[1]).split("/")[6]:
-                                uuid = (line.split("UUID=")[1]).split(" ")[0]
-                                self.device = subprocess.getoutput("blkid |grep \"{}\" |awk \'{{print $1}}\' |cut -d\':\' -f1".format(uuid))
-                                if not self.device:
-                                    self.error_exit('Err : cant found disk' )
-            self.mount_point = self.found_mount_p(self.device)
-            self.disk_uuid_old = uuid
+            self.get_device = True
+            self.device = self.found_mount_p(self.get_device)
+            with open("/etc/fstab") as fstab:
+                for line in fstab:
+                    if "disk{}".format(self.oiodisk) in line:
+                        if  (line.split(" ")[1]).split("/")[6] == "disk{}".format(self.oiodisk):
+                            uuid = (line.split("UUID=")[1]).split(" ")[0]
+                            self.dev = subprocess.getoutput("blkid |grep \"{}\" |awk \'{{print $1}}\' |cut -d\':\' -f1".format(uuid))
+                            if not self.device:
+                                self.device = self.dev
+                            else:
+                                if self.device != self.dev:
+                                    self.error_exit('Err : Wrong mount option')
+                            if not self.device:
+                                self.error_exit('Err : cant found disk mounted on {}'.format(self.oio_disk))
+            if self.device:
+                self.disk = self.check_vd_pd_health(self.device)
+                self.get_device = False
+                self.mount_point = self.found_mount_p(self.device)
+                self.disk_uuid_old = self.get_uuid(self.device)
+
         self.disk_state = subprocess.getoutput("gridinit_cmd status |grep \"rawx-{}\"".format(self.oio_disk)).split()[1]
         self.stop_start_oio_srv("stop", self.oio_disk, self.device, self.mount_point)
         self.rawx_status = self.check_rawx_status(self.oio_disk)
@@ -102,8 +115,8 @@ class Storcli():
         self.rawx_status = self.check_rawx_status(self.oio_disk)
         print(self.rawx_status)
         if self.rawx_status in  ("Broken", "Down"):
-            self.error_exit('Err : cant wipe disk : rawx-{} is Down'.format(self.oio_disk))    
-        self.rebuild_oio(self.hostname, self.oio_disk, self.ip, self.date, self.hour, self.mount_point)
+            self.error_exit('Err : cant wipe disk : rawx-{} is Down'.format(self.oio_disk))
+        #self.rebuild_oio(self.hostname, self.oio_disk, self.ip, self.date, self.hour, self.mount_point, self.device)
 
     def error_exit(self,message):
         '''
@@ -130,11 +143,8 @@ class Storcli():
                     disk,
              ))
             pd_status = json.loads(cmd)['Controllers'][0]['Response Data']['Drive Information'][0]['State']
-            print(pd_status)
             pd_global_status = json.loads(cmd)['Controllers'][0]['Command Status']['Status']
-            print(pd_global_status)
             if pd_status == "Onln" and pd_global_status == "Success":
-                print(disk)
                 return(disk)
             else:
                  self.error_exit('Err : cant wipe faulty disk : must change it with --replace option')
@@ -155,13 +165,16 @@ class Storcli():
         '''
         cmd = "df -h | grep {}".format(device)
         mount_point = subprocess.getoutput(cmd).split(" ")[-1]
-        if not mount_point:
+        if not  mount_point or (mount_point and self.get_device):
             Disk_uuid = self.get_uuid(device)
             if Disk_uuid:
                 with open("/etc/fstab") as fstab:
                     for line in fstab:
                         if Disk_uuid in line:
-                            mount_point = line.split(" ")[1]
+                            if self.get_device:
+                                mount_point = line.split(" ")[0]
+                            else:
+                                mount_point = line.split(" ")[1]
         return(mount_point)
 
     def force_kill_process(self, oiodisk):
@@ -274,9 +287,11 @@ class Storcli():
             wipe_cmd = "mkfs.{} -F {} -L disk{}".format(fstype, device, oiodisk)
         else:
             error_exit(self.RED + "This script support only {} FS".format(self.fstype))
-        self.cmd_execute(wipe_cmd)
-        if self.get_uuid(self.device) == uuid:
-            self.error_exit("Err : Failed to wipe disk")
+        for counter in range(2):
+            try:
+                self.cmd_execute(wipe_cmd)
+                if self.get_uuid(self.device) == uuid:
+                self.error_exit("Err : Failed to wipe disk")
         cmd = "sed -i s/{}/{}/g {} && sed -i s/\"disk{} xfs \"/\"disk{} ext4\"/g {}".format(uuid, self.get_uuid(self.device), '/etc/fstab', oiodisk, oiodisk, '/etc/fstab')
         self.cmd_execute(cmd)
 
@@ -310,7 +325,8 @@ class Storcli():
         else:
            print(self.GREEN + n_msg)
 
-    def rebuild_oio(self, hostname, oiodisk, ip, date, hour, mount_point):
+  
+    def rebuild_oio(self, hostname, oiodisk, ip, date, hour, mount_point, device):
         rebuitd_check = subprocess.getoutput("OIO_NS=DAILYMOTION openio cluster list rawx | grep \"{}\"| grep {}".format(hostname, oiodisk))
         print(rebuitd_check)
         if "True" in rebuitd_check:
@@ -320,10 +336,11 @@ class Storcli():
             y_msg = "Rebuild on disk [{}] will be launched on tmux".format(oiodisk)
             n_msg = "You can launch later the rebuild on disk {} using this command : \n [{}]".format(oiodisk, cmd)
             self.launch_rebuild(y_msg, n_msg, oiodisk, "oio-blob-rebuilder DAILYMOTION --volume {}:62{} --workers 10 --allow-same-rawx".format(ip, oiodisk))
-            time.sleep( 10 )
+            time.sleep( 5 )
             check_rawx = subprocess.getoutput ("gridinit_cmd status |grep DAILYMOTION-rawx-{}".format(oiodisk))
             if not os.path.ismount(self.mount_point):
                 self.error_exit("Cant mount disk {} on {}".format(device, mount_point))
+            time.sleep( 3 )
             if "DOWN" or "BROKEN" in check_rawx:
                 self.error_exit("rawx-{} is broken or down".format(oiodisk))
         else:
@@ -358,4 +375,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
