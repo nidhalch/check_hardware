@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+
+# Imports ######################################################################
+
+import json
+import os
+import stat
+import sys
+import re
+import subprocess
+import  shutil
+import argparse
+import socket
+import pwd
+import grp
+import time
+import datetime
+import sys
+
+class Storcli():
+    '''
+    '''
+
+    def __init__(self, args):
+
+        # Vars ################################################################
+
+        self.oio_disk = None
+        self.mount_point = None
+        self.naa = None
+        self.clear_incident = True
+        self.disk_failure = False
+        self.replace = None
+        self.wipe = None
+        self.disk_uuid_old = None
+        self.gridinit_cmd = ['DAILYMOTION-rawx', 'DAILYMOTION-rdir', 'DAILYMOTION-oio-blob-indexer']
+        self.hostname = socket.gethostname()
+        self.fstype = 'ext4'
+        self.fstab = "/etc/fstab"
+        self.now = datetime.datetime.now()
+        self.date = datetime.datetime.strftime(self.now, '%m/%d/%Y')
+        self.hour = time.strftime('%H:%M:%S')
+        self.CV_OK_STATES = ["optimal"]
+        self.VD_OK_STATES = ["optl"]
+        self.PD_OK_STATES = ["onln", "ugood", "dhs", "ghs"]
+        self.ip = socket.gethostbyname(socket.gethostname())
+        self.RED   = "\033[1;31m"
+        self.BLUE  = "\033[1;34m"
+        self.CYAN  = "\033[1;36m"
+        self.GREEN = "\033[0;32m"
+
+        # Args ################################################################
+
+        if args.wipe:#--wipe to wipe disk
+            self.wipe = args.wipe
+        if args.replace:#--replace to replace disk
+            self.replace = args.replace
+        if args.device:
+            self.device = args.device#--device name : sdxx
+        if args.oio:
+            self.oiodisk = args.oio#--oio oiodisk name : diskxx
+
+        # Configuration --device ################################################################
+
+        if args.wipe and args.device:
+            if "/dev/" in self.device:
+                stat.S_ISBLK(os.stat(self.device).st_mode)
+            else:
+                stat.S_ISBLK(os.stat("/dev/" + self.device).st_mode)
+                self.device = "/dev/{}".format(self.device)
+
+            self.disk = self.check_vd_pd_health(self.device)
+            self.mount_point = self.found_mount_p(self.device)
+            self.oio_disk = self.found_mount_p(self.device)[33:]
+            self.disk_uuid_old = self.get_uuid(self.device)
+
+        if args.wipe and args.oio:
+            if not "disk" in self.oiodisk:
+                self.oiodisk = "disk{}".format(self.oiodisk)
+            self.oio_disk = self.oiodisk
+            print(self.oio_disk)
+            self.device = self.found_mount_p(self.oio_disk).split(" ")[0]
+            if not self.device:
+                with open("/etc/fstab") as fstab:
+                    for line in fstab:
+                        if self.oiodisk in line:
+                            if self.oiodisk == (line.split(" ")[1]).split("/")[6]:
+                                uuid = (line.split("UUID=")[1]).split(" ")[0]
+                                print(uuid)
+                                self.device = subprocess.getoutput("blkid |grep \"{}\" |awk \'{{print $1}}\' |cut -d\':\' -f1".format(uuid))
+                                print("blkid |grep \"{}\" |awk \'{{print $1}}\' |cut -d\':\' -f1".format(uuid))
+                                print(self.device)
+                                if not self.device:
+                                    self.error_exit('Err : cant found disk' )
+            self.disk_state = subprocess.getoutput("gridinit_cmd status |grep \"rawx-{}\"".format(self.oio_disk)).split()[1]
+            self.stop_start_oio_srv("stop", self.oio_disk, self.device, self.mount_point)
+            self.rawx_status = self.check_rawx_status(self.oio_disk)
+            if self.rawx_status not in  ("Broken", "Down"):
+                self.error_exit('Err : cant wipe disk : rawx-{} is Up'.format(self.oio_disk))
+            self.validation(self.disk, self.device, self.disk_uuid_old, self.oio_disk)
+            self.wipe_disk(self.fstype, self.device, self.oio_disk, self.disk_uuid_old)
+            self.stop_start_oio_srv("start", self.oio_disk, self.device, self.mount_point)
+            time.sleep(10)
+            self.rawx_status = self.check_rawx_status(self.oio_disk)
+            print(self.rawx_status)
+            if self.rawx_status in  ("Broken", "Down"):
+                self.error_exit('Err : cant wipe disk : rawx-{} is Down'.format(self.oio_disk))
+            self.rebuild_oio(self.hostname, self.oio_disk, self.ip, self.date, self.hour, self.mount_point)
+
+    def error_exit(self,message):
+        '''
+        Exit(3) when error detected
+        '''
+        print(self.RED + message)
+        sys.exit(3)
+
+
+    def find_enc_slot(self, device):
+        disk_state = subprocess.getoutput(' diskhs.py --device {}'.format(device))
+        r = re.search(r"/c0/e[0-9]+/s[0-9]+", disk_state)
+        pdisk = r.group()
+        if pdisk:
+            return(pdisk)
+        else:
+            return None
+
+    def check_vd_pd_health(self, device):
+        disk = self.find_enc_slot(self.device)
+        if disk:
+            cmd = subprocess.getoutput(
+                'storcli {} show J'.format(
+                    disk,
+             ))
+            pd_status = json.loads(cmd)['Controllers'][0]['Response Data']['Drive Information'][0]['State']
+            print(pd_status)
+            pd_global_status = json.loads(cmd)['Controllers'][0]['Command Status']['Status']
+            print(pd_global_status)
+            if pd_status == "Onln" and pd_global_status == "Success":
+                print(disk)
+                return(disk)
+            else:
+                 self.error_exit('Err : cant wipe faulty disk : must change it with --replace option')
+        else:
+            self.error_exit('Err : cant found disk')
+
+    def check_cluster_status(self):
+        '''
+        Checking health of cluster
+        '''
+        self.oio_health_check = subprocess.getoutput("gridinit_cmd status")
+        if "failed" in self.oio_health_check:
+            self.error_exit('Err: OiO cluster is not healthy')
+
+    def found_mount_p(self, device):
+        '''
+        Find out the mount point from given /dev/disk
+        '''
+        cmd = "df -h | grep {}".format(device)
+        mount_point = subprocess.getoutput(cmd).split(" ")[-1]
+        if not mount_point:
+            Disk_uuid = self.get_uuid(device)
+            if Disk_uuid:
+                with open("/etc/fstab") as fstab:
+                    for line in fstab:
+                        if Disk_uuid in line:
+                            mount_point = line.split(" ")[1]
+        return(mount_point)
+
+    def force_kill_process(self, oiodisk):
+        check_process = subprocess.getoutput("ps faux |grep \"rdir-{}\" |grep openio | awk {{' print $2'}}".format(oiodisk))
+        self.cmd_execute("kill -9 " + check_process)
+
+    def stop_start_oio_srv(self, action, oiodisk, device, mount_p):
+          '''
+          Stop, start check oio services
+          DAILYMOTION-rawx, DAILYMOTION-rdir, DAILYMOTION-oio-blob-indexer
+          '''
+          #Check if the disk was already locked by another rebuild
+          check_rawx = subprocess.getoutput ("gridinit_cmd status |grep DAILYMOTION-rawx-{}".format(oiodisk))
+          if action == "stop":
+              Rebuild_in_progress = subprocess.getoutput("OIO_NS=DAILYMOTION openio volume admin show {}:62{}".format(self.ip, oiodisk))
+              if "lock" in Rebuild_in_progress:
+                  print(Rebuild_in_progress)
+                  self.error_exit("Error: Rebuild in progress on {}:62{}".format(self.hostname, oiodisk))
+              else:
+                  print("Ok", "[Info]: No rebuild in progress on disk{} {}".format(oiodisk, Rebuild_in_progress))
+              if "incident_date" in Rebuild_in_progress  and self.clear_incident :
+                  print("Ok", "[Info]: Clearing old incident lock on disk{} {}".format(oiodisk, Rebuild_in_progress))
+                  self.cmd_execute("OIO_NS=DAILYMOTION openio volume admin clear {}:62{}".format(self.ip, oiodisk))
+              check_mount = subprocess.getoutput("mount |grep {}".format(device))
+              if  check_mount:
+                 self.force_kill_process(oiodisk)
+                 self.cmd_execute("umount /var/lib/oio/sds/DAILYMOTION/disk{}".format(oiodisk))
+              #if  check_mount:
+               #   shutil.rmtree(mount_p)
+          for cmd in self.gridinit_cmd:
+              if action == "stop":
+                  self.cmd_execute("gridinit_cmd {} {}-{}".format(action, cmd, oiodisk))
+              elif action == "start":
+                 self.cmd_execute("systemctl daemon-reload")
+                 self.cmd_execute("mount -a")
+                 check_mount = subprocess.getoutput("mount |grep {}".format(device))
+                 if not check_mount:
+                     self.error_exit("Error : Cant mount {}".format(device))
+                 self.prepare_disk_env(oiodisk)
+                 self.cmd_execute("gridinit_cmd {} {}-{}".format(action, cmd, oiodisk))
+              else:
+                  print(self.disk)
+                  self.cmd_execute("mount -a")
+                  if "Broken" in check_rawx:
+                      self.error_exit(self.RED + "Error: OiO services related to disk {} is broken".format(disk))
+
+    def validation(self, disk, device, uuid, oio_disk):
+        elements = []
+        n = locals()
+        check_elements = ("disk", "device", "uuid", "oio_disk")
+        for element in check_elements:
+            if n[element]:
+                elements.append(element + " " + str(n[element]) + " : Ok")
+            else:
+                elements.append(element + " " + str(n[element]) + " : Err")
+        if len(elements) > 0:
+            print(elements)
+            if any("Err" in s for s in elements):
+                self.error_exit("error")
+            else:
+                self.disable_led("echo test")
+
+    def get_uuid(self, device):
+        '''
+        Get uuid of given /dev/disk
+        '''
+        cmd = 'blkid {} | awk \'{{ print $3 }}\' |cut -d ""="" -f2 |sed \'s/^"\(.*\)".*/\\1/\''.format(device)
+        Disk_uuid = subprocess.getoutput(cmd)
+        return(Disk_uuid)
+
+    def cmd_execute(self, command):
+        '''
+        Execute command and handle erros
+        '''
+        try:
+            cmd = subprocess.Popen(command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+            result = cmd.stdout.readlines()
+            return(result)
+            print(self.GREEN + "[Success]")
+        except subprocess.CalledProcessError as exc:
+            print(self.RED + "Status : FAIL", exc.returncode, exc.cmd)
+
+    def check_rawx_status(self, oiodisk):
+        rawx_status = subprocess.getoutput("gridinit_cmd status |grep DAILYMOTION-rawx-{}".format(self.oio_disk))
+        if  "UP" in rawx_status:
+            rawx_status = "Up"
+        elif "DOWN" or "BROKEN" in rawx_status:
+            rawx_status = "Down"
+        elif "BROKEN" in rawx_status:
+           rawx_status = "BROKEN"
+        else:
+            self.error_exit('Err : unknow state')
+        return(rawx_status)
+
+    def disable_led(self, cmd):
+        '''
+        storcli start location on failed disk
+        '''
+        reply = ["yes"]
+        user_choice = None
+        while user_choice  not in reply:
+            user_choice = input("Put <yes> when you finish changing the failed disk: yes \n")
+        self.cmd_execute(cmd)
+
+    def wipe_disk(self, fstype, device, oiodisk, uuid):
+        if self.fstype == 'ext4':
+            wipe_cmd = "mkfs.{} -F {} -L disk{}".format(fstype, device, oiodisk)
+        else:
+            error_exit(self.RED + "This script support only {} FS".format(self.fstype))
+        self.cmd_execute(wipe_cmd)
+        if self.get_uuid(self.device) == uuid:
+            self.error_exit("Err : Failed to wipe disk")
+        cmd = "sed -i s/{}/{}/g {} && sed -i s/\"disk{} xfs \"/\"disk{} ext4\"/g {}".format(uuid, self.get_uuid(self.device), '/etc/fstab', oiodisk, oiodisk, '/etc/fstab')
+        self.cmd_execute(cmd)
+
+    def prepare_disk_env(self, oiodisk):
+        '''
+        Preparing the disk env, dirs and files
+        '''
+        oio_srv = ("rawx", "rdir")
+        Base_dir = "/var/lib/oio/sds/DAILYMOTION/disk"
+        uid = pwd.getpwnam("openio").pw_uid
+        gid = grp.getgrnam("openio").gr_gid
+        for srv in oio_srv:
+            if not os.path.exists("{}{}/{}-{}".format(Base_dir, oiodisk, srv, oiodisk)):
+                os.makedirs("{}{}/{}-{}".format(Base_dir, oiodisk, srv, oiodisk))
+            os.chown("{}{}/{}-{}".format(Base_dir, oiodisk, srv, oiodisk), uid, gid)
+            os.chown("{}{}/{}-{}".format(Base_dir, oiodisk,  srv, oiodisk), uid, gid)
+
+    def launch_rebuild(self, y_msg, n_msg, oiodisk, cmd):
+        '''
+        Launching rebuild on changed disk
+        '''
+        reply = ["yes", "no"]
+        user_choice = None
+        while user_choice  not in reply:
+            user_choice = input("Want to launch the rebuild now ?: yes/no \n")
+        if user_choice == "yes":
+            print(self.GREEN + y_msg)
+            cmd = "screen -dmS rebuild-openio-disk-{} bash -c \"{}\"".format(oiodisk, cmd)
+            self.cmd_execute(cmd)
+            print("Watch then screen : [use : <screen -ls |grep \"rebuild-openio-disk-{}\"> to foundwanted screen".format(oiodisk, oiodisk))
+        else:
+           print(self.GREEN + n_msg)
+
+    def rebuild_oio(self, hostname, oiodisk, ip, date, hour, mount_point):
+        rebuitd_check = subprocess.getoutput("OIO_NS=DAILYMOTION openio cluster list rawx | grep \"{}\"| grep {}".format(hostname, oiodisk))
+        print(rebuitd_check)
+        if "True" in rebuitd_check:
+            cmd = "OIO_NS=DAILYMOTION openio volume admin incident {}:62{} --date $(date --date='{} {}' +\"%s\")".format(ip, oiodisk, date, hour)
+            self.cmd_execute(cmd)
+            cmd = "oio-blob-rebuilder DAILYMOTION --volume {}:62{} --workers 10 --allow-same-rawx".format(self.ip, oiodisk)
+            y_msg = "Rebuild on disk [{}] will be launched on tmux".format(oiodisk)
+            n_msg = "You can launch later the rebuild on disk {} using this command : \n [{}]".format(oiodisk, cmd)
+            self.launch_rebuild(y_msg, n_msg, oiodisk, "oio-blob-rebuilder DAILYMOTION --volume {}:62{} --workers 10 --allow-same-rawx".format(ip, oiodisk))
+            time.sleep( 10 )
+            check_rawx = subprocess.getoutput ("gridinit_cmd status |grep DAILYMOTION-rawx-{}".format(oiodisk))
+            if not os.path.ismount(self.mount_point):
+                self.error_exit("Cant mount disk {} on {}".format(device, mount_point))
+            if "DOWN" or "BROKEN" in check_rawx:
+                self.error_exit("rawx-{} is broken or down".format(oiodisk))
+        else:
+            self.error_exit("Error : rawx-{} not yet disabled".format(oiodisk))
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Output storcli and smartctl for a failed device',
+        add_help=True
+    )
+    parser.add_argument('--device', type=str,
+                        help='device to scan')
+    parser.add_argument('--wipe', action='store_true',
+                        help='wipe disk and put it back in cluster')
+    parser.add_argument('--replace', action='store_true',
+                        help='Change the defective disk:\
+                            --replace --device /dev/sdxx\
+                            --replace --enclosure xx --slot xx')
+    parser.add_argument('--oio', type=str,
+                        help='wipe disk and put it back in cluster')
+    args = parser.parse_args()
+
+ #   if args.device and (not args.wipe or not args.replace):
+ #       sys.stderr.write('If you dont specificy a device, you must specify '
+ #               'the enclosure and slot of the disk.\n')
+ #       sys.exit(1)
+ #   if args.replace or args.wipe:
+ #       if not args.device:
+ #           sys.stderr.write("--wipe and --replace options must be used with --replace or --wipe.\n")
+ #           sys.exit(1)
+    storcli = Storcli(args)
+
+if __name__ == '__main__':
+    main()
+
