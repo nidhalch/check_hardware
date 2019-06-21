@@ -89,24 +89,7 @@ class Storcli():
         #find the disk against the oiodisk given
         if args.wipe and args.oio:
             if "disk" in self.oiodisk:
-                self.o    def disk_management(self, disk, kern_logn, n_lines)
-        self.printing_message("Notification", "[Storcli] Enable LED on faulty disk : {}".format(disk))
-        enable_led = self.cmd_execute("storcli {} start locate".format(disk))
-        if not str("Succeeded") in str(enable_led):
-            self.error_exit("Err : cant enable LED on {}".format(disk)))
-        self.printing_message("Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
-        user_choice("storcli {} stop locate".format(self.disk), "Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
-        self.printing_message("Notification", "[Storcli] Check status of changed disk : {}".format(disk))
-        user_choice("test", "Notification", "Tape <yes> when finish changing disk")
-        time.sleep(10)
-        check_status = subprocess.getoutput("storcli {} show ".format(disk))
-        if not "UGood" in check_status:
-            self.error_exit(self.RED + "Disk {} was not correctly changed \n {}".format(disk, check_status))
-        self.printing_message("Notification", "[Storcli] Create the corresponding RAID0 : {}".format(self.disk))
-        if not str("Succeeded") in str(check_status):
-            self.error_exit(self.RED + "Error when creating RAID0")
-        self_p_disk = "/dev/" + detect_new_disk(kern_logn, n_lines)
-iodisk = self.oiodisk.split("disk")
+                self.oiodisk = self.oiodisk.split("disk")
             self.oio_disk = self.oiodisk
             self.get_device = True
             self.device = self.found_mount_p(self.get_device)
