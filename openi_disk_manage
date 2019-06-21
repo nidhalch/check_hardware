@@ -64,6 +64,19 @@ class Storcli():
         if args.oio:
             self.oiodisk = args.oio#--oio oiodisk name : diskxx
 
+        if args.replace and args.oio and args.pdisk:
+            replace_unknow_disk = True
+            self.disk = args.pdisk
+            cmd = subprocess.getoutput(
+                'storcli {} show J'.format(
+                    disk,
+             ))
+            pd_status = json.loads(cmd)['Controllers'][0]['Command Status']['Status']
+            if not pd_status == "Success":
+                self.error_exit("Pdisk not valide : {}".format(self.disk))
+            self.oio_disk = self.oiodisk
+            self.device = self.disk_management(self.disk, self.kern_log, self.n_log)
+
         # Configuration --device ################################################################
 
         if (args.wipe or args.replace) and args.device:
