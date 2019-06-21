@@ -53,6 +53,16 @@ class Storcli():
         self.CYAN  = "\033[1;36m"
         self.GREEN = "\033[0;32m"
 
+        '''
+        :disk = device : type => /cxx/exx/sxx
+        :device = /dev/sdxx
+        :oio_disk = diskxx ==> oiodisk
+        :args.replace : when replacing faulty disk
+        :args.wipe : wiping existing disk
+        :args.oio : argument to set oio disk
+        :args.device : argument to set disk 
+        '''
+
         # Args ################################################################
 
         if args.wipe:#--wipe to wipe disk
@@ -63,6 +73,13 @@ class Storcli():
             self.device = args.device#--device name : sdxx
         if args.oio:
             self.oiodisk = args.oio#--oio oiodisk name : diskxx
+        if args.pdisk:
+            self.pdisk = args.pdisk
+
+        # Set vars if --replace + --oio + --pdisk  #####################################################
+        '''
+        use this when we want to change + wipe of pd when we cant found disk /dev/sdxx
+        '''
 
         if args.replace and args.oio and args.pdisk:
             replace_unknow_disk = True
@@ -77,7 +94,10 @@ class Storcli():
             self.oio_disk = self.oiodisk
             self.device = self.disk_management(self.disk, self.kern_log, self.n_log)
 
-        # Configuration --device ################################################################
+        # Set vars if --wipe + --device  ################################################################
+        '''
+        use this when we want to change + wipe of pd of known disk /dev/sdxx
+        '''
 
         if (args.wipe or args.replace) and args.device:
             if "/dev/" in self.device:
@@ -507,6 +527,8 @@ def main():
                             --replace --enclosure xx --slot xx')
     parser.add_argument('--oio', type=str,
                         help='wipe disk and put it back in cluster')
+    parser.add_argument('--oio', type=str,
+                        help='give the pd : /cx/exx/sxx')
     args = parser.parse_args()
 
     if args.replace or args.wipe:
