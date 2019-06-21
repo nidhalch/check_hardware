@@ -81,7 +81,11 @@ class Storcli():
             self.disk_uuid_old = self.get_uuid(self.device)
             
             if args.replace:
-                self.device = self.disk_management(self.disk, self.kern_log, self.n_log)
+                if self.disk:
+                    self.device = self.disk_management(self.disk, self.kern_log, self.n_log)
+                else:
+                    self.error_exit('Err : cant found PD encxxx slotxx of disk{}\n You must use --oio and --pdisk options to avoid this error'.format(self.device))
+                       
 
         # Set vars if --oio + --wipe  ################################################################
         #find the disk against the oiodisk given
