@@ -462,7 +462,13 @@ def main():
             sys.exit(1)
 
     storcli = Storcli(args)
-
 if __name__ == '__main__':
-    main()
-                         
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('Interrupted')
+        try:
+            sys.exit(0)
+        except SystemExit:
+            sys.exit(0)
+   
