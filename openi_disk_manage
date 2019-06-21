@@ -17,8 +17,6 @@ import time
 import datetime
 import sys 
 
-
-
 class Storcli():
     '''
     '''
