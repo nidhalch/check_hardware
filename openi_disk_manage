@@ -130,7 +130,7 @@ class Storcli():
 
         # Set vars if --oio + --wipe  ################################################################
         #find the disk against the oiodisk given
-        if (args.wipe or args.wipe) and args.oio:
+        if (args.wipe or args.replace) and args.oio:
             if "disk" in self.oiodisk:
                 self.oiodisk = self.oiodisk.split("disk")
             self.oio_disk = self.oiodisk
@@ -153,7 +153,8 @@ class Storcli():
                 self.disk = self.check_vd_pd_health(self.device)
                 self.get_device = False
                 self.mount_point = self.found_mount_p(self.device)
-                self.disk_uuid_oself.error_exit('Err : cant found PD encxxx slotxx of oiodisk{}\n You must use --oio and --pdisk options to avoid this error'.format(self.oiodisk)ld = self.get_uuid(self.device)
+                self.disk_uuid_old = self.get_uuid(self.device)
+                #self.error_exit('Err : cant found PD encxxx slotxx of oiodisk{}\n You must use --oio and --pdisk options to avoid this error'.format(self.oiodisk)ld = self.get_uuid(self.device)
                 if not self.disk:
                     if not agrs.replace:
                                        
@@ -546,7 +547,7 @@ def main():
                             --replace --enclosure xx --slot xx')
     parser.add_argument('--oio', type=str,
                         help='wipe disk and put it back in cluster')
-    parser.add_argument('--oio', type=str,
+    parser.add_argument('--pdisk', type=str,
                         help='give the pd : /cx/exx/sxx')
     args = parser.parse_args()
 
