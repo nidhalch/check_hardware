@@ -307,9 +307,9 @@ class Storcli():
             self.error_exit("Err : cant enable LED on {}".format(disk))
         self.printing_message("Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
         user_choice("storcli {} stop locate".format(self.disk), "Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
-        self.printing_message("Notification", "[Storcli] Check status of changed disk : {}".format(disk))
         user_choice("test", "Notification", "Tape <yes> when finish changing disk")
         time.sleep(10)
+        self.printing_message("Notification", "[Storcli] Check status of changed disk : {}".format(disk))
         check_status = subprocess.getoutput("storcli {} show ".format(disk))
         if not "UGood" in check_status:
             self.error_exit(self.RED + "Disk {} was not correctly changed \n {}".format(disk, check_status))
