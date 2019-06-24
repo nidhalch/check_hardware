@@ -155,8 +155,8 @@ class Storcli():
                 self.mount_point = self.found_mount_p(self.device)
                 self.disk_uuid_old = self.get_uuid(self.device)
                 #self.error_exit('Err : cant found PD encxxx slotxx of oiodisk{}\n You must use --oio and --pdisk options to avoid this error'.format(self.oiodisk)ld = self.get_uuid(self.device)
-                if not self.disk:
-                    if not agrs.replace:
+                #if not self.disk:
+                 #   if not agrs.replace:
                                        
 
         self.lock_file = "/var/run/oio/disk{}".format(self.oio_disk)
@@ -211,7 +211,7 @@ class Storcli():
         print(color + msg)
 
 
-    def find_storcli_binary(self, program)
+    def find_storcli_binary(self, program):
         path=os.getenv('PATH')
         for p in path.split(os.path.pathsep):
             p=os.path.join(p,pgm)
@@ -286,7 +286,7 @@ class Storcli():
         proc = subprocess.Popen(['tail', '-n', str(n), f], stdout=subprocess.PIPE)
         lines = proc.stdout.readlines()
         re.findall('\[sd(.+?)\]', cmd)
-        new_disk = subprocess.getoutput("tail -n {} {} |grep \"Attached SCSI disk\"".format(kern_logn, n_lines)
+        new_disk = subprocess.getoutput("tail -n {} {} |grep \"Attached SCSI disk\"".format(kern_logn, n_lines))
         new_disk = re.findall('\[sd(.+?)\]', new_disk)
         new_disk = "sd" + new_disk
         disk_exists = os.path.isfile('/dev/' + new_disk)
@@ -298,7 +298,7 @@ class Storcli():
         self.printing_message("Notification", "[Storcli] Enable LED on faulty disk : {}".format(disk))
         enable_led = self.cmd_execute("storcli {} start locate".format(disk))
         if not str("Succeeded") in str(enable_led):
-            self.error_exit("Err : cant enable LED on {}".format(disk)))
+            self.error_exit("Err : cant enable LED on {}".format(disk))
         self.printing_message("Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
         user_choice("storcli {} stop locate".format(self.disk), "Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
         self.printing_message("Notification", "[Storcli] Check status of changed disk : {}".format(disk))
