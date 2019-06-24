@@ -34,8 +34,6 @@ class Storcli():
         self.wipe = None
         self.lock_file = None
         self.disk_uuid_old = None
-        self.kern_log = "/var/log/kern.log"
-        self.n_lines = 15
         self.get_device = False
         self.gridinit_cmd = ['DAILYMOTION-rawx', 'DAILYMOTION-rdir', 'DAILYMOTION-oio-blob-indexer']
         self.hostname = socket.gethostname()
@@ -66,7 +64,7 @@ class Storcli():
         # Check if storcli binary exist and cluster is health ################
 
         self.cluster_health = self.check_cluster_status()
-        self.storcli_binary = self.find_storcli_binary(storcli)
+        self.storcli_binary = self.find_storcli_binary("storcli")
         if self.cluster_health == "NOK":
             self.error_exit("Err : OIO cluster is not healthy")
         elif not self.storcli_binary:
@@ -101,7 +99,7 @@ class Storcli():
             if not pd_status == "Success":
                 self.error_exit("Pdisk not valide : {}".format(self.disk))
             self.oio_disk = self.oiodisk
-            self.device = self.disk_management(self.disk, self.kern_log, self.n_log)
+            self.device = self.disk_management(self.disk, self.kern_log, self.n_lines)
 
         # Set vars if --wipe + --device  ################################################################
         '''
@@ -154,11 +152,13 @@ class Storcli():
                 self.get_device = False
                 self.mount_point = self.found_mount_p(self.device)
                 self.disk_uuid_old = self.get_uuid(self.device)
-                if self.disk:if args.replace:
-                if self.disk:
-                    self.device = self.disk_management(self.disk, self.kern_log, self.n_log)
-                else:
-                    self.error_exit('Err : cant found PD encxxx slotxx of disk{}\nYou must use --oio and --pdisk options to avoid this error'.format(self.device))
+                if args.replace:
+                    if self.disk:
+                        self.device = self.disk_management(self.disk)
+                        if not self.device :
+                             self.error_exit("Err : cant detect device")
+                    else:
+                        self.error_exit('Err : cant found PD encxxx slotxx of disk{}\nYou must use --oio and --pdisk options to avoid this error'.format(self.device))
                     
                 #self.error_exit('Err : cant found PD encxxx slotxx of oiodisk{}\n You must use --oio and --pdisk options to avoid this error'.format(self.oiodisk)ld = self.get_uuid(self.device)
                 #if not self.disk:
@@ -220,7 +220,7 @@ class Storcli():
     def find_storcli_binary(self, program):
         path=os.getenv('PATH')
         for p in path.split(os.path.pathsep):
-            p=os.path.join(p,pgm)
+            p=os.path.join(p,program)
             if os.path.exists(p) and os.access(p,os.X_OK):
                 return(p)
 
@@ -285,39 +285,46 @@ class Storcli():
         return(mount_point)
     
     
-    def detect_new_disk(self, kern_logn, n_lines):
+    def disks_list(self):
         '''
         Get name of new disk
         '''
-        proc = subprocess.Popen(['tail', '-n', str(n), f], stdout=subprocess.PIPE)
-        lines = proc.stdout.readlines()
-        re.findall('\[sd(.+?)\]', cmd)
-        new_disk = subprocess.getoutput("tail -n {} {} |grep \"Attached SCSI disk\"".format(kern_logn, n_lines))
-        new_disk = re.findall('\[sd(.+?)\]', new_disk)
-        new_disk = "sd" + new_disk
-        disk_exists = os.path.isfile('/dev/' + new_disk)
-        if disk_exists:
-            error_exit(self.RED + "Cant found the new disk")
+        disks = []
+        list_disk = subprocess.getoutput("blkid |awk \'{{ print $1 }}\'")
+        list_disk = list_disk.split()
+        for line in list_disk:
+            disks.append(line.split(":")[0]) 
+        return(disks)
 
+    def detect_new_disk(self, disk_list):
+            new_disk_list = self.disks_list()
+            old_disk_list = disk_list
+            new_disk = [item for item in new_disk_list if item not in old_disk_list]
+            if len(new_disk) > 1: 
+                error_exit(self.RED + "More than 1 disk was detected")
+            else:
+                return(new_disk)            
     
-    def disk_management(self, disk, kern_logn, n_lines):
+    def disk_management(self, disk):
         self.printing_message("Notification", "[Storcli] Enable LED on faulty disk : {}".format(disk))
         enable_led = self.cmd_execute("storcli {} start locate".format(disk))
         if not str("Succeeded") in str(enable_led):
             self.error_exit("Err : cant enable LED on {}".format(disk))
-        self.printing_message("Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
-        user_choice("storcli {} stop locate".format(self.disk), "Notification", "[Storcli] Disable LED on faulty disk : {}".format(self.disk))
-        user_choice("test", "Notification", "Tape <yes> when finish changing disk")
+        self.user_choice("storcli {} stop locate".format(self.disk), "[Storcli] tape <yes> when you want to disable LED on faulty disk : {}".format(self.disk))
+        self.user_choice("test", "Tape <yes> when finish changing disk")
         time.sleep(10)
         self.printing_message("Notification", "[Storcli] Check status of changed disk : {}".format(disk))
         check_status = subprocess.getoutput("storcli {} show ".format(disk))
         if not "UGood" in check_status:
             self.error_exit(self.RED + "Disk {} was not correctly changed \n {}".format(disk, check_status))
+        disk_list = self.disks_list()
+        print(disk_list)
         self.printing_message("Notification", "[Storcli] Create the corresponding RAID0 : {}".format(self.disk))
         if not str("Succeeded") in str(check_status):
             self.error_exit(self.RED + "Error when creating RAID0")
-        p_disk = "/dev/" + detect_new_disk(kern_logn, n_lines)
+        p_disk = self.detect_new_disk(disk_list)
         print(p_disk)
+        return(p_disk)
 
     def force_kill_process(self, oiodisk):
         ''' 
