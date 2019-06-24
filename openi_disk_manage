@@ -63,6 +63,15 @@ class Storcli():
         :args.device : argument to set disk 
         '''
 
+        # Check if storcli binary exist and cluster is health ################
+
+        self.cluster_health = self.check_cluster_status()
+        self.storcli_binary = self.find_storcli_binary(storcli)
+        if self.cluster_health == "NOK":
+            self.error_exit("Err : OIO cluster is not health")
+        elif not self.storcli_binary:
+            self.error_exit("Err : C'ant found sotrcli binary")
+
         # Args ################################################################
 
         if args.wipe:#--wipe to wipe disk
@@ -201,6 +210,13 @@ class Storcli():
         print(color + msg)
 
 
+    def find_storcli_binary(self, program)
+        path=os.getenv('PATH')
+        for p in path.split(os.path.pathsep):
+            p=os.path.join(p,pgm)
+            if os.path.exists(p) and os.access(p,os.X_OK):
+                return(p)
+
     def find_enc_slot(self, device):
         '''
         Find slot and enc of given device : using th diskhs.py script output
@@ -238,7 +254,10 @@ class Storcli():
         '''
         self.oio_health_check = subprocess.getoutput("gridinit_cmd status")
         if "failed" in self.oio_health_check:
-            self.error_exit('Err: OiO cluster is not healthy')
+            cluster_health = "NOK"
+        else:
+            cluster_health = "OK"
+        return(cluster_health)
 
     def found_mount_p(self, device):
         '''
