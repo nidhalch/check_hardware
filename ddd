@@ -155,16 +155,10 @@ class Storcli():
                 if args.replace:
                     if self.disk:
                         self.device = self.disk_management(self.disk)
-                        if not self.device :
-                             self.error_exit("Err : cant detect device")
                     else:
                         self.error_exit('Err : cant found PD encxxx slotxx of disk{}\nYou must use --oio and --pdisk options to avoid this error'.format(self.device))
-                    
-                #self.error_exit('Err : cant found PD encxxx slotxx of oiodisk{}\n You must use --oio and --pdisk options to avoid this error'.format(self.oiodisk)ld = self.get_uuid(self.device)
-                #if not self.disk:
-                 #   if not agrs.replace:
-                                       
 
+                                       
         self.lock_file = "/var/run/oio/disk{}".format(self.oio_disk)
         if os.path.isfile(self.lock_file):
             self.error_exit("Err : disk locked : {}".format(self.lock_file))
@@ -173,6 +167,8 @@ class Storcli():
 
         # Common process  ################################################################
 
+        
+        
         self.disk_state = subprocess.getoutput("gridinit_cmd status |grep \"rawx-{}\"".format(self.oio_disk)).split()[1]
         self.stop_start_oio_srv("stop", self.oio_disk, self.device, self.mount_point)
         self.rawx_status = self.check_rawx_status(self.oio_disk)
