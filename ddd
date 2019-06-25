@@ -64,8 +64,8 @@ class Storcli():
         # Check if storcli binary exist and cluster is health ################
 
         self.cluster_health = self.check_cluster_status()
-        self.storcli_binary = self.find_storcli_binary("storcli")
-        self.diskhs_binary = self.find_storcli_binary("diskhs.py")
+        self.storcli_binary = self.find_storcli_program("storcli")
+        self.diskhs_binary = self.find_storcli_program("diskhs.py")
         if self.cluster_health == "NOK":
             self.error_exit("Err : OIO cluster is not healthy")
         if not self.storcli_binary:
