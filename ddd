@@ -213,8 +213,7 @@ class Storcli():
             self.error_exit("Uknown color")
         print(color + msg)
 
-
-    def find_storcli_binary(self, program):
+    def find_program_binary(self, program):
         path=os.getenv('PATH')
         for p in path.split(os.path.pathsep):
             p=os.path.join(p,program)
