@@ -102,7 +102,7 @@ class Storcli():
             if not pd_status == "Success":
                 self.error_exit("Pdisk not valide : {}".format(self.disk))
             self.oio_disk = self.oiodisk
-            self.device = self.disk_management(self.disk, self.kern_log, self.n_lines)
+            self.device = self.disk_management(self.disk)
 
         # Set vars if --wipe + --device  ################################################################
         '''
