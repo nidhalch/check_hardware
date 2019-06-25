@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+
+# Imports ######################################################################
+
+import json
+import os
+import stat
+import sys
+import re
+import subprocess
+import  shutil
+import argparse
+import socket
+import pwd
+import grp
+import time
+import datetime
+import sys
+
+class Scality():
+    '''
+    '''
+
+    def __init__(self, args):
+
+        # Vars ################################################################
+
+       self.logical = []
+       self.physical = []
+       self.lv_nb = 0
+       self.pd_nb = 0
+       self.ctrl_nb = 0
+       self.scalitydisk = None
+       self.mount_point = None
+       self.replace = None
+       self.wipe = None
+       self.lock_file = None
+       self.disk_uuid_old = None
+       self.get_device = False
+       self.hpacucli = None
+       self.smart = []
+       self.logical = []
+       self.physical = []
+
+
+        # Check if storcli binary exist and cluster is health ################
+
+            #self.cluster_health = self.check_cluster_status()
+            #self.storcli_binary = self.find_program_binary("storcli")
+            #self.diskhs_binary = self.find_program_binary("diskhs.py")
+            #if self.cluster_health == "NOK":
+            #    self.error_exit("Err : OIO cluster is not healthy")
+            #if not self.storcli_binary:
+            #    self.error_exit("Err : C'ant found sotrcli binary")
+            #if not self.diskhs_binary:
+            #    self.error_exit("Err : C'ant found diskhs.py binary")
+
+        # Args ################################################################
+
+       if args.wipe:#--wipe to wipe disk
+           self.wipe = args.wipe
+       if args.replace:#--replace to replace disk
+           self.replace = args.replace
+       if args.device:
+           self.device = args.device#--device name : sdxx
+       if args.scaldisk:
+           self.scaldisk = args.scaldisk#--scaldisk name : diskxx
+
+        # Set vars if --wipe + --device  #######################################
+
+       if (args.wipe or args.replace) and args.device:
+          if "/dev/" in self.device:
+              stat.S_ISBLK(os.stat(self.device).st_mode)
+          else:
+              stat.S_ISBLK(os.stat("/dev/" + self.device).st_mode)
+              self.device = "/dev/{}".format(self.device)
+
+       self.find_pd(self.device, "logical")
+
+
+    def hpacucli_output(self):
+        hpacucli = subprocess.Popen(['sudo', 'hpacucli', 'ctrl', 'all', 'show', 'config'], stdout=subprocess.PIPE)
+        res = hpacucli.communicate()[0]
+        output = []
+        for r in res.decode('utf-8').splitlines():
+            r = r.lstrip()
+            if (r != ''):
+                output.append(r)
+        if output:
+            return(output)
+
+
+    def list_pd_ld(self, tuple):
+        self.hpacucli = tuple
+        for element in self.hpacucli:
+            logical = re.compile('^.*logicaldrive.*$')
+            physical = re.compile('^.*physicaldrive.*$')
+            smart = re.compile('^Smart Array .*$')
+            if (logical.match(element)):
+                # Add the next logical drive to the previous array dict
+                self.lv_nb += 1
+                self.logical.append(element)
+                # Insert all controllers in dedicated list of dict
+            if (smart.match(element)):
+                self.ctrl_nb += 1
+                self.smart.append(element)
+               # Insert all physicaldives in dedicated list of dict
+            if (physical.match(element)):
+             # Add the next physical drive to the previous logical drive dict
+                self.pd_nb += 1
+                self.physical.append(element)
+        return(self.logical, self.physical, self.ctrl_nb)
+
+
+    def find_disk(self, device, component):
+        output = self.hpacucli_output()
+        naa = self.find_naa(device)
+        ld, pd, ctrl = self.list_pd_ld(output)
+        if component == "logical":
+            for element in ld:
+                id_logical = element.split(" ")[1]
+                for slot in range(0, ctrl):
+                    detail_ld = subprocess.getoutput("hpacucli ctrl slot={} ld {} show detail".format(slot, id_logical))
+                    if not naa:
+                        if device in detail_ld:
+                             logical_drive = id_logical
+                             return
+                    else:
+                         naa = naa.upper()
+                         if naa in detail_ld:
+                             logical_drive = id_logical
+                             return(slot, logical_drive)
+
+
+
+    def find_pd(self, device, component):
+        slot, ld = self.find_disk(device, component)
+        array = subprocess.getoutput("hpacucli ctrl slot={} ld {} show | awk '/array/'".format(slot, ld))
+        if array:
+            array = subprocess.getoutput('hpacucli ctrl slot={} pd all show | egrep -A2 \'{}\' |egrep -v array'.format(slot, array)).strip()
+            pd = array.split(" ")[1]
+            print(slot, ld, pd)
+
+
+    def find_naa(self, device):
+        '''
+        Send iscsi inquiry to get NAA
+        '''
+        naa_regex = re.compile('0x([0-9a-z]{32})')
+
+        sg_inq_check = subprocess.getstatusoutput('sg_inq')
+        if sg_inq_check[0] not in (0, 1):
+            sys.stderr.write('sg_inq (package sg3-utils) doesn\'t seem to be installed.\n')
+            sys.exit(1)
+
+        cmd = 'sg_inq -p 0x83 {}'.format(device)
+        output = subprocess.getoutput(cmd)
+        match = naa_regex.search(output)
+        return match.group().replace('0x', '')
+
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='Output storcli and smartctl for a failed device',
+        add_help=True
+    )
+    parser.add_argument('--device', type=str,
+                        help='device to scan')
+    parser.add_argument('--wipe', action='store_true',
+                        help='wipe disk and put it back in cluster')
+    parser.add_argument('--replace', action='store_true',
+                        help='Change the defective disk:\
+                            --replace --device /dev/sdxx\
+                            --replace --enclosure xx --slot xx')
+    parser.add_argument('--scaldisk', type=str,
+                        help='wipe disk and put it back in cluster')
+    args = parser.parse_args()
+
+    scality = Scality(args)
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        print('Interrupted')
+        try:
+            sys.exit(0)
+        except SystemExit:
+            sys.exit(0)
+
+~
