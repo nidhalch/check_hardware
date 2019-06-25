@@ -65,11 +65,14 @@ class Storcli():
 
         self.cluster_health = self.check_cluster_status()
         self.storcli_binary = self.find_storcli_binary("storcli")
+        self.diskhs_binary = self.find_storcli_binary("diskhs.py")
         if self.cluster_health == "NOK":
             self.error_exit("Err : OIO cluster is not healthy")
-        elif not self.storcli_binary:
+        if not self.storcli_binary:
             self.error_exit("Err : C'ant found sotrcli binary")
-
+        if not self.diskhs_binary:
+            self.error_exit("Err : C'ant found diskhs.py binary")
+ 
         # Args ################################################################
 
         if args.wipe:#--wipe to wipe disk
@@ -166,8 +169,6 @@ class Storcli():
             os.mknod(self.lock_file)
 
         # Common process  ################################################################
-
-        
         
         self.disk_state = subprocess.getoutput("gridinit_cmd status |grep \"rawx-{}\"".format(self.oio_disk)).split()[1]
         self.stop_start_oio_srv("stop", self.oio_disk, self.device, self.mount_point)
@@ -306,20 +307,30 @@ class Storcli():
         enable_led = self.cmd_execute("storcli {} start locate".format(disk))
         if not str("Succeeded") in str(enable_led):
             self.error_exit("Err : cant enable LED on {}".format(disk))
-        self.user_choice("storcli {} stop locate".format(self.disk), "[Storcli] tape <yes> when you want to disable LED on faulty disk : {}".format(self.disk))
-        self.user_choice("test", "Tape <yes> when finish changing disk")
-        time.sleep(10)
-        self.printing_message("Notification", "[Storcli] Check status of changed disk : {}".format(disk))
-        check_status = subprocess.getoutput("storcli {} show ".format(disk))
-        if not "UGood" in check_status:
-            self.error_exit(self.RED + "Disk {} was not correctly changed \n {}".format(disk, check_status))
+        self.user_choice("storcli {} stop locate".format(self.disk), "[Storcli] tape <yes> when you want to disable LED on faulty disk : {}".format(self.disk))   
+        success = False
+        retries = 0
+        while True:
+            retries += 1
+            time.sleep(3)
+            try:
+                self.printing_message("Waiting to detect the replaced disk : {}s(Max 300s)".format(retries))
+                check_status = subprocess.getoutput("storcli {} show ".format(disk))
+                if "UGood" in check_status:
+                    success = True
+                    break
+            except Exception as e:
+                print("Will retry : %s" % serr)
+            if reties > 300:
+                self.printing_message("Error", "The disk {} was not changed or not detected after replace\n check_status".format(disk))
+                self.error_exit("Error", "The disk {} was not changed or not detected after replace".format(disk))
+                break
         disk_list = self.disks_list()
         print(disk_list)
         self.printing_message("Notification", "[Storcli] Create the corresponding RAID0 : {}".format(self.disk))
         if not str("Succeeded") in str(check_status):
             self.error_exit(self.RED + "Error when creating RAID0")
         p_disk = self.detect_new_disk(disk_list)
-        print(p_disk)
         return(p_disk)
 
     def force_kill_process(self, oiodisk):
