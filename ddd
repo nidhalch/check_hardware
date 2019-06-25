@@ -169,7 +169,8 @@ class Storcli():
             os.mknod(self.lock_file)
 
         # Common process  ################################################################
-        
+        if not self.device or not self.disk:
+            self.error_exit("Err : cant get information abut disk (/dev/sdxx) or device (/cx/exx/sxx)")
         self.disk_state = subprocess.getoutput("gridinit_cmd status |grep \"rawx-{}\"".format(self.oio_disk)).split()[1]
         self.stop_start_oio_srv("stop", self.oio_disk, self.device, self.mount_point)
         self.rawx_status = self.check_rawx_status(self.oio_disk)
@@ -279,7 +280,6 @@ class Storcli():
                             else:
                                 mount_point = line.split(" ")[1]
         return(mount_point)
-    
     
     def disks_list(self):
         '''
