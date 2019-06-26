@@ -149,7 +149,7 @@ class Scality():
         disk_status = subprocess.getoutput('scality-iod status disk{}'.format(disk))
         if action == "stop":
             if "not running" in disk_status:
-                self.printing_message("Info", "[Scality] : biziod process was already stopped on  disk{}".format(disk))
+                self.printing_message("Info", "[Scality] : biziod process was already stopped on disk{}".format(disk))
             else:
                 self.printing_message("Info", "[Scality] : Stop biziod process  on  disk{}".format(disk))
                 disk_status = subprocess.getoutput('scality-iod {} disk{}'.format(action, disk))
@@ -169,7 +169,7 @@ class Scality():
                  if not check_mount:
                      self.error_exit("Error : Failed to mount {} on {}".format(device, mnt_p))
             else:
-                self.printing_message("Info", "[Scality] : biziod process was already started on  disk{}".format(disk))
+                self.printing_message("Info", "[Scality] : biziod process was already started on disk{}".format(disk))
         else:
             self.error_exit("Error : Action {} not supported".format(action))
 
