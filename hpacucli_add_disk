@@ -95,7 +95,7 @@ class Scality():
        self.mount_p = self.found_mount_p(self.device)
        self.mount_point = str(re.findall(r'\d+', self.mount_p))[1:-1]
        self.mount_point = self.mount_point.lstrip('\"')
-       self.scalitydisk = self.mount_point
+       self.scalitydisk = self.mount_point.replace("'", "")
        self.disk_uuid_old = self.get_uuid(self.device)
        # stop + wipe + start ####################################################                                                   
        self.validation(self.slot, self.ld, self.pd, self.scalitydisk, self.device, self.disk_uuid_old)
@@ -104,7 +104,7 @@ class Scality():
        self.stop_start_biziod(self.scalitydisk, "start", self.device, self.mount_p)
        self.printing_message("Info", "[Scality] : Reload bizobj on disk{}".format(self.scalitydisk))
        self.rc = subprocess.call(["/tmp/change-disk.sh", "--reload", "disk{}".format(self.scalitydisk)])
-       if 0 < self.rc < 0:
+       if self.rc != 0:
            self.error_exit("Error : Cannot reload bizobj on disk{}".format(self.scalitydisk))
        else:
            with open('/etc/scality-rings.conf', 'r') as content_file:
