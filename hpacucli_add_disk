@@ -38,23 +38,35 @@ class Scality():
        self.disk_uuid_old = None
        self.get_device = False
        self.hpacucli = None
+       self.slot = None
+       self.ld = None
+       self.pd = None
+       self.fstype = 'ext4'
        self.smart = []
        self.logical = []
        self.physical = []
-
+       self.RED   = "\033[1;31m"
+       self.BLUE  = "\033[1;34m"
+       self.CYAN  = "\033[1;36m"
+       self.GREEN = "\033[0;32m"
 
         # Check if storcli binary exist and cluster is health ################
-
-            #self.cluster_health = self.check_cluster_status()
-            #self.storcli_binary = self.find_program_binary("storcli")
-            #self.diskhs_binary = self.find_program_binary("diskhs.py")
-            #if self.cluster_health == "NOK":
-            #    self.error_exit("Err : OIO cluster is not healthy")
-            #if not self.storcli_binary:
-            #    self.error_exit("Err : C'ant found sotrcli binary")
-            #if not self.diskhs_binary:
-            #    self.error_exit("Err : C'ant found diskhs.py binary")
-
+        
+            self.manufacturer = subprocess.getoutput('dmidecode -s system-manufacturer')
+            self.hpacucli_binary = self.find_program_binary("hpacucli")
+            self.ssacli_binary = self.find_program_binary("ssacli")
+            self.changedisk_binary = self.find_program_binary("change-disk.sh")
+            self.biziod_binary = self.find_program_binary("scality-iod"
+            if not "HP" in self.manufacturer.upper():
+                self.error_exit("Error : This script is only supported by <HP> servers")
+            if not self.hpacucli_binary:
+                if not self.ssacli_binary:
+                    self.error_exit("Error : C'ant found <hpacucli> or/and <ssacli> binary")
+            if not self.changedisk_binary:
+                self.error_exit("Error : C'ant found <change-disk.sh> binary")
+            if not self.biziod_binary:
+                self.error_exit("Error : C'ant found <scality-iod> binary")
+             
         # Args ################################################################
 
        if args.wipe:#--wipe to wipe disk
@@ -75,8 +87,114 @@ class Scality():
               stat.S_ISBLK(os.stat("/dev/" + self.device).st_mode)
               self.device = "/dev/{}".format(self.device)
 
-       self.find_pd(self.device, "logical")
+       self.slot, self.ld, self.pd = self.find_pd(self.device, "logical")
+       if self.slot and self.ld and self.pd :
+           self.check_pd_ld_status(self.slot, self.ld, self.pd)
+       else:
+           error_exit('Error : Cant found all information about disk  : LD , SLOT, PD')
+       self.mount_p = self.found_mount_p(self.device)
+       self.mount_point = str(re.findall(r'\d+', self.mount_p))[1:-1]
+       self.mount_point = self.mount_point.lstrip('\"')
+       self.scalitydisk = self.mount_point
+       self.disk_uuid_old = self.get_uuid(self.device)
+       # stop + wipe + start ####################################################                                                   
+       self.validation(self.slot, self.ld, self.pd, self.scalitydisk, self.device, self.disk_uuid_old)
+       self.stop_start_biziod(self.scalitydisk, "stop", self.device, self.mount_p)
+       self.wipe_disk(self.fstype, self.device, self.scalitydisk, self.disk_uuid_old, self.mount_p)
+       self.stop_start_biziod(self.scalitydisk, "start", self.device, self.mount_p)
+       self.printing_message("Info", "[Scality] : Reload bizobj on disk{}".format(self.scalitydisk))
+       self.rc = subprocess.call(["/tmp/change-disk.sh", "--reload", "disk{}".format(self.scalitydisk)])
+       if 0 < self.rc < 0:
+           self.error_exit("Error : Cannot reload bizobj on disk{}".format(self.scalitydisk))
+       else:
+           with open('/etc/scality-rings.conf', 'r') as content_file:
+               content = content_file.read()
+           if not os.path.isdir(self.mount_p):
+               self.error_exit("Error : Cannot write on disk{}".format(self.scalitydisk))
+           else:
+               self.printing_message("Ok", "[Scality] : DONE! finishing working on disk{}".format(self.scalitydisk))
+               sys.exit(0)                                 
+ 
+    def error_exit(self,message):
+        '''
+        Exit(3) when error detected
+        '''
+        print(self.RED + message)
+        sys.exit(3)
 
+    def printing_message(self, severity, msg):
+        '''
+        Format printed messages
+        '''
+        if severity == "Info":
+            color = self.BLUE
+        elif severity == "Notification":
+            color = self.CYAN
+        elif severity == "Error":
+            color = self.RED
+        elif severity == "Ok":
+            color = self.GREEN
+        else:
+            self.error_exit("Uknown color")
+        print(color + msg)
+
+    def stop_start_biziod(self, disk, action, device, mnt_p):
+        disk_status = subprocess.getoutput('scality-iod status disk{}'.format(disk))
+        if action == "stop":
+            if "not running" in disk_status:
+                self.printing_message("Info", "[Scality] : biziod process was already stopped on  disk{}".format(disk))
+            else:
+                self.printing_message("Info", "[Scality] : Stop biziod process  on  disk{}".format(disk))
+                disk_status = subprocess.getoutput('scality-iod {} disk{}'.format(action, disk))
+                if not "done" in disk_status:
+                    self.error_exit("Error : Failed to stop biziod process on disk{}\n{}".format(disk, disk_status))
+                else:
+                     umount_output = subprocess.getoutput("umount -l {}".format(mnt_p))
+                     check_mount = subprocess.getoutput("mount |grep  \"{}\"".format(device))
+                     if check_mount:
+                         self.error_exit("Error : Failed to umount {}".format(mnt_p))
+        elif action == "start":
+            disk_status = subprocess.getoutput('scality-iod status disk{}'.format(disk))
+            if "not running" in disk_status:
+                 self.printing_message("Info", "[Scality] : {} biziod process on disk{}".format(action, disk))
+                 disk_status = subprocess.getoutput('scality-iod {} disk{}'.format(action, disk))
+                 check_mount = subprocess.getoutput("mount |grep  \"{}\"".format(device))
+                 if not check_mount:
+                     self.error_exit("Error : Failed to mount {} on {}".format(device, mnt_p))
+            else:
+                self.printing_message("Info", "[Scality] : biziod process was already started on  disk{}".format(disk))
+        else:
+            self.error_exit("Error : Action {} not supported".format(action))
+
+    def wipe_disk(self, fstype, device, scaldisk, uuid, mnt_p):
+        if self.fstype == 'ext4':
+            wipe_cmd = "mkfs.{} -F {} ".format(fstype, device)
+        else:
+            error_exit(self.RED + "This script support only {} FS".format(self.fstype))
+        self.printing_message("Info", "[Scality] : Wiping {} using {}".format(device, fstype))
+        check_mount = subprocess.getoutput("mount |grep {}".format(device))
+        if check_mount:
+             error_exit("Error : Failed to umount {}".format(mnt_p))
+        else:
+            wipe_check = subprocess.getoutput(wipe_cmd)
+            if self.get_uuid(self.device) == uuid:
+                self.error_exit("Err : Failed to wipe disk\n" + wipe_check)
+            self.cmd_execute("sed -i s/{}/{}/g {}".format(uuid, self.get_uuid(self.device), '/etc/fstab'))
+
+    def cmd_execute(self, command):
+        '''
+        Execute command and handle erros
+        '''
+        try:
+            cmd = subprocess.Popen(command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE)
+            result = cmd.stdout.readlines()
+            print(self.GREEN + "[Success]")
+            return(result)
+        except subprocess.CalledProcessError as exc:
+            print(self.RED + "Status : FAIL", exc.returncode, exc.cmd)
 
     def hpacucli_output(self):
         hpacucli = subprocess.Popen(['sudo', 'hpacucli', 'ctrl', 'all', 'show', 'config'], stdout=subprocess.PIPE)
@@ -89,6 +207,44 @@ class Scality():
         if output:
             return(output)
 
+    def validation(self, slot, ld, pd, scalitydisk, device, uuid):
+        '''
+        Validation process before wiping disk
+        '''
+        elements = []
+        n = locals()
+        check_elements = ("slot", "ld", "pd", "scalitydisk", "device", "uuid")
+        for element in check_elements:
+            if n[element]:
+                elements.append(element + " : " + str(n[element]) + " : [Ok]")
+            else:
+                elements.append(element + " " + str(n[element]) + " : [Err]")
+        if len(elements) > 0:
+            print(elements)
+            if any("Err" in s for s in elements):
+                self.error_exit("error")
+            else:
+                self.user_choice("test", "Check information : if evrything is OK : tape <yes>")
+
+    def user_choice(self, cmd, msg):
+        '''
+        storcli start location on failed disk
+        '''
+        reply = ["yes"]
+        user_choice = None
+        while user_choice  not in reply:
+            user_choice = input(msg + "\n")
+        self.cmd_execute(cmd)
+
+    def check_pd_ld_status(self, slot, ld, pd):
+        status = subprocess.getoutput('hpacucli ctrl slot={} ld {} show detail'.format(slot, ld))
+        r1 = (re.findall("Status:.*", status))
+        if not "OK" in str(r1):
+            self.error_exit('Error : Failed LD {} on slot {}\n {}'.format(ld, slot, status))
+        status = subprocess.getoutput('hpacucli ctrl slot={} pd {} show detail'.format(slot, pd))
+        r1 = (re.findall("Status:.*", status))
+        if not "OK" in str(r1):
+            self.error_exit('Error : Failed LD {} on slot {}\n {}'.format(pd, slot, status))
 
     def list_pd_ld(self, tuple):
         self.hpacucli = tuple
@@ -111,7 +267,6 @@ class Scality():
                 self.physical.append(element)
         return(self.logical, self.physical, self.ctrl_nb)
 
-
     def find_disk(self, device, component):
         output = self.hpacucli_output()
         naa = self.find_naa(device)
@@ -131,16 +286,13 @@ class Scality():
                              logical_drive = id_logical
                              return(slot, logical_drive)
 
-
-
     def find_pd(self, device, component):
         slot, ld = self.find_disk(device, component)
         array = subprocess.getoutput("hpacucli ctrl slot={} ld {} show | awk '/array/'".format(slot, ld))
         if array:
             array = subprocess.getoutput('hpacucli ctrl slot={} pd all show | egrep -A2 \'{}\' |egrep -v array'.format(slot, array)).strip()
             pd = array.split(" ")[1]
-            print(slot, ld, pd)
-
+            return(slot, ld, pd)
 
     def find_naa(self, device):
         '''
@@ -158,7 +310,28 @@ class Scality():
         match = naa_regex.search(output)
         return match.group().replace('0x', '')
 
+    def get_uuid(self, device):
+        '''
+        Get uuid of given /dev/disk
+        '''
+        cmd = 'blkid {} | awk \'{{ print $2 }}\' |cut -d ""="" -f2 |sed \'s/^"\(.*\)".*/\\1/\''.format(device)
+        Disk_uuid = subprocess.getoutput(cmd)
+        return(Disk_uuid)
 
+    def found_mount_p(self, device):
+        '''
+        Find out the mount point from given /dev/disk
+        '''
+        cmd = "df -h | grep {}".format(device)
+        mount_point = subprocess.getoutput(cmd).split(" ")[-1]
+        if not  mount_point:
+            Disk_uuid = self.get_uuid(device)
+            if Disk_uuid:
+                with open("/etc/fstab") as fstab:
+                    for line in fstab:
+                        if Disk_uuid in line:
+                            mount_point = line.split(" ")[1]
+        return(mount_point)
 
 def main():
     parser = argparse.ArgumentParser(
@@ -187,5 +360,3 @@ if __name__ == '__main__':
             sys.exit(0)
         except SystemExit:
             sys.exit(0)
-
-~
