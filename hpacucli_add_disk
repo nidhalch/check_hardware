@@ -138,6 +138,13 @@ class Scality():
             self.error_exit("Uknown color")
         print(color + msg)
 
+    def find_program_binary(self, program):
+        path=os.getenv('PATH')
+        for p in path.split(os.path.pathsep):
+            p=os.path.join(p,program)
+            if os.path.exists(p) and os.access(p,os.X_OK):
+                return(p)
+
     def stop_start_biziod(self, disk, action, device, mnt_p):
         disk_status = subprocess.getoutput('scality-iod status disk{}'.format(disk))
         if action == "stop":
