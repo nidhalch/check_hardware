@@ -56,7 +56,7 @@ class Scality():
        self.hpacucli_binary = self.find_program_binary("hpacucli")
        self.ssacli_binary = self.find_program_binary("ssacli")
        self.changedisk_binary = self.find_program_binary("change-disk.sh")
-       self.biziod_binary = self.find_program_binary("scality-iod"
+       self.biziod_binary = self.find_program_binary("scality-iod")
        if not "HP" in self.manufacturer.upper():
            self.error_exit("Error : This script is only supported by <HP> servers")
        if not self.hpacucli_binary:
