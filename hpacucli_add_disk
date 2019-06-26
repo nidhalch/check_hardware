@@ -52,20 +52,20 @@ class Scality():
 
         # Check if storcli binary exist and cluster is health ################
         
-            self.manufacturer = subprocess.getoutput('dmidecode -s system-manufacturer')
-            self.hpacucli_binary = self.find_program_binary("hpacucli")
-            self.ssacli_binary = self.find_program_binary("ssacli")
-            self.changedisk_binary = self.find_program_binary("change-disk.sh")
-            self.biziod_binary = self.find_program_binary("scality-iod"
-            if not "HP" in self.manufacturer.upper():
-                self.error_exit("Error : This script is only supported by <HP> servers")
-            if not self.hpacucli_binary:
-                if not self.ssacli_binary:
-                    self.error_exit("Error : C'ant found <hpacucli> or/and <ssacli> binary")
-            if not self.changedisk_binary:
-                self.error_exit("Error : C'ant found <change-disk.sh> binary")
-            if not self.biziod_binary:
-                self.error_exit("Error : C'ant found <scality-iod> binary")
+       self.manufacturer = subprocess.getoutput('dmidecode -s system-manufacturer')
+       self.hpacucli_binary = self.find_program_binary("hpacucli")
+       self.ssacli_binary = self.find_program_binary("ssacli")
+       self.changedisk_binary = self.find_program_binary("change-disk.sh")
+       self.biziod_binary = self.find_program_binary("scality-iod"
+       if not "HP" in self.manufacturer.upper():
+           self.error_exit("Error : This script is only supported by <HP> servers")
+       if not self.hpacucli_binary:
+           if not self.ssacli_binary:
+               self.error_exit("Error : C'ant found <hpacucli> or/and <ssacli> binary")
+       if not self.changedisk_binary:
+           self.error_exit("Error : C'ant found <change-disk.sh> binary")
+       if not self.biziod_binary:
+           self.error_exit("Error : C'ant found <scality-iod> binary")
              
         # Args ################################################################
 
