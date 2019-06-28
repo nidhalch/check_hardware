@@ -148,15 +148,15 @@ class Scality():
        #enable locking and dislocking disk to prevent multiple wipe and/or replacing disk####
        #if lock file exist : we check it created time : if > 360s : we delete lock, else, we stop wipe or replace processing
        self.lock_file = '/var/run/scality/disk-{}'.format(self.scalitydisk)
-       if  os.path.isfile(lock_file):
-           if  time.time() - os.path.getmtime(lock_file) > 360:
+       if  os.path.isfile(self.lock_file):
+           if  time.time() - os.path.getmtime(self.lock_file) > 360:
                self.printing_message('Info', '[Scality] cleaning lock of disk{}'.format(self.scalitydisk))
-               os.remove(lock_file)
-               os.mknod(lock_file)
+               os.remove(self.lock_file)
+               os.mknod(self.lock_file)
            else:
-               self.error_exit('Error: disk locked by another wiping or/and replacing process\n {}'.format(lock_file))
+               self.error_exit('Error: disk locked by another wiping or/and replacing process\n {}'.format(self.lock_file))
        else:
-           os.mknod(lock_file)
+           os.mknod(self.lock_file)
 
        # stop + wipe + start ####################################################
        self.validation(self.slot, self.ld, self.pd, self.scalitydisk, self.device, self.disk_uuid_old)
@@ -393,19 +393,22 @@ class Scality():
         naa = self.find_naa(device)
         ld, pd, ctrl = self.list_pd_ld(output)
         if component == "logical":
+            self.printing_message("Notification", '[HP] Scan devices to find Slot and LD used by  [{}]'.format(device))
             for element in ld:
                 id_logical = element.split(" ")[1]
                 for slot in range(0, ctrl):
-                    self.printing_message("Info", "[HP] Scan slot=[{}] to get LD=[{}] information : {}".format(slot,id_logical))
+                    print(self.CYAN ,'Scan : Slot:[{}] : LD:[{}]'.format(slot, id_logical),  end="\r")
                     detail_ld = subprocess.getoutput("hpacucli ctrl slot={} ld {} show detail".format(slot, id_logical))
                     if not naa:
                         if device in detail_ld:
                              logical_drive = id_logical
-                             return
+                             self.printing_message("Notification", "[HP] Disk [{}] is located on : slot=[{}] and LD: [{}]".format(device, slot, logical_drive))
+                             return(slot, logical_drive)
                     else:
                          naa = naa.upper()
                          if naa in detail_ld:
                              logical_drive = id_logical
+                             self.printing_message("Notification", "[HP] Disk [{}] is located on : slot=[{}] and LD: [{}]".format(device, slot, logical_drive))
                              return(slot, logical_drive)
 
     def find_pd(self, device, component):
