@@ -328,13 +328,13 @@ class Scality():
         check_elements = ("slot", "ld", "pd", "scalitydisk", "device", "uuid")
         for element in check_elements:
             if n[element]:
-                elements.append(element + " : " + str(n[element]) + " : [Ok]")
+                elements.append(element + " : " + str(n[element]) + " : [OK]")
             else:
-                elements.append(element + " " + str(n[element]) + " : [Err]")
+                elements.append(element + " " + str(n[element]) + " : [ERR]")
         if len(elements) > 0:
             print(elements)
             if any("Err" in s for s in elements):
-                self.error_exit("error")
+                self.error_exit("Error : failed to fetch one or/and many information")
             else:
                 self.user_choice("test", "Check information : if evrything is OK : tape <yes>")
 
@@ -388,6 +388,7 @@ class Scality():
                     return(uuid)
 
     def find_disk(self, device, component):
+        self.printing_message("Info", "[HP] Start Slot, LD and PD identification : {}".format(pd))
         output = self.hpacucli_output()
         naa = self.find_naa(device)
         ld, pd, ctrl = self.list_pd_ld(output)
