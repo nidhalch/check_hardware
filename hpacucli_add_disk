@@ -51,7 +51,7 @@ class Scality():
        self.GREEN = "\033[0;32m"
 
         # Check if storcli binary exist and cluster is health ################
-        
+
        self.manufacturer = subprocess.getoutput('dmidecode -s system-manufacturer')
        self.hpacucli_binary = self.find_program_binary("hpacucli")
        self.ssacli_binary = self.find_program_binary("ssacli")
@@ -66,7 +66,7 @@ class Scality():
            self.error_exit("Error : C'ant found <change-disk.sh> binary")
        if not self.biziod_binary:
            self.error_exit("Error : C'ant found <scality-iod> binary")
-             
+
         # Args ################################################################
 
        if args.wipe:#--wipe to wipe disk
@@ -77,6 +77,22 @@ class Scality():
            self.device = args.device#--device name : sdxx
        if args.scaldisk:
            self.scaldisk = args.scaldisk#--scaldisk name : diskxx
+       if args.logicaldrive:
+           self.logicaldrive = args.logicaldrive
+       if agrs.physicaldive :
+           self.physicaldives = args.physicaldives
+       if args.slot:
+           self.slot = args.slot
+
+        # Set vars if --replace + --scaldisk + --logicaldrive  #################
+       if args.replace and args.scaldisk and args.logicaldrive and args.physicaldives:
+          self.pd = self.physicaldives
+          self.ld = self.logicaldrive
+          self.slot = self.slot
+          slot.scalitydisk = self.scaldisk
+          self.device = self.disk_management(self.slot, self.ld, self.pd)
+          self.mount_p = self.found_mount_p(self.device)
+          self.disk_uuid_old = self.find_uuid_unknow_device(self.scalitydisk)
 
         # Set vars if --wipe + --device  #######################################
 
@@ -96,7 +112,7 @@ class Scality():
          self.mount_point = self.mount_point.lstrip('\"')
          self.scalitydisk = self.mount_point.replace("'", "")
          self.disk_uuid_old = self.get_uuid(self.device)
-            
+
        # Set vars if --oio + --wipe  ################################################################
        #find the disk against the oiodisk given
        if (args.wipe or args.replace) and args.scaldisk:
@@ -117,14 +133,16 @@ class Scality():
                                 if self.device != self.dev:
                                     self.error_exit('Err : Wrong mount option')
                             if not self.device:
-                                self.error_exit('Err : cant found disk mounted on disk{}'.format(self.oio_disk))
+                                self.error_exit('Err : cant found disk mounted on disk{} with uuid : {}'.format(self.oio_disk, self.find_uuid_unknow_device(self.scalitydisk)))
         if self.device:
             self.get_device = False
             self.mount_point = self.found_mount_p(self.device)
             self.disk_uuid_old = self.get_uuid(self.device)
-            
 
-       # stop + wipe + start ####################################################                                                   
+        if not args.device or not args.scalitydisk:
+            self.error_exit('Error : cant determinate device or/and scalitydisk')
+    
+       # stop + wipe + start ####################################################
        self.validation(self.slot, self.ld, self.pd, self.scalitydisk, self.device, self.disk_uuid_old)
        self.stop_start_biziod(self.scalitydisk, "stop", self.device, self.mount_p)
        self.wipe_disk(self.fstype, self.device, self.scalitydisk, self.disk_uuid_old, self.mount_p)
@@ -140,8 +158,8 @@ class Scality():
                self.error_exit("Error : Cannot write on disk{}".format(self.scalitydisk))
            else:
                self.printing_message("Ok", "[Scality] : DONE! finishing working on disk{}".format(self.scalitydisk))
-               sys.exit(0)                                 
- 
+               sys.exit(0)
+
     def error_exit(self,message):
         '''
         Exit(3) when error detected
@@ -171,6 +189,52 @@ class Scality():
             p=os.path.join(p,program)
             if os.path.exists(p) and os.access(p,os.X_OK):
                 return(p)
+
+    def disk_management(self, slot, ld, pd):
+        self.printing_message("Notification", "[Storcli] Enable LED on faulty disk : {}".format(pd))
+        led_enabling_rc = subprocess.call('hpacucli ctrl slot={} pd {} modify led=on'.format(slot, pd))
+        if led_enabling_rc !=0:
+            self.error_exit('Error : Cannot Enable LED on {}'.format(pd))
+        self.user_choice('hpacucli ctrl slot={} pd {} modify led=on'.format(slot, pd), 'Scality : tape <yes> when you want to disable LED on {}'.format(pd))
+        while true:
+            retries += 1
+            time.sleep(3)
+            try:
+                self.printing_message("Waiting to detect the replaced disk : {}s(Max 300s)".format(retries))
+                check_status = subprocess.getoutput("hpacucli  ctrl slot={} pd {} show".format(slot, pd))
+                if "unassigned" in check_status:
+                    success = True
+                    break
+                if reties > 300:
+                    self.error_exit("Error", "The disk {} was not changed or not detected after replace\n {}".format(pd, check_status))
+                    break
+        disk_list = self.disks_list()
+        self.printing_message("Notification", "[Scality] Create the corresponding RAID0 : {}".format(pd))
+        raid_rc = subprocess.call('hpssacli controller slot={} create type=logicaldrive drives={} raid=0'.format(slot, pd))
+        if raid_rc != 0:
+            self.error_exit("Error when creating RAID0")
+        p_disk = self.detect_new_disk(disk_list)
+        return(disk)
+
+    def disks_list(self):
+        '''
+        Get name of new disk
+        '''
+        disks = []
+        list_disk = subprocess.getoutput("blkid |awk \'{{ print $1 }}\'")
+        list_disk = list_disk.split()
+        for line in list_disk:
+            disks.append(line.split(":")[0])
+        return(disks)
+
+    def detect_new_disk(self, disk_list):
+            new_disk_list = self.disks_list()
+            old_disk_list = disk_list
+            new_disk = [item for item in new_disk_list if item not in old_disk_list]
+            if len(new_disk) > 1:
+                error_exit(self.RED + "More than 1 disk was detected")
+            else:
+                return(new_disk)
 
     def stop_start_biziod(self, disk, action, device, mnt_p):
         disk_status = subprocess.getoutput('scality-iod status disk{}'.format(disk))
@@ -301,6 +365,14 @@ class Scality():
                 self.physical.append(element)
         return(self.logical, self.physical, self.ctrl_nb)
 
+    def find_uuid_unknow_device(self, device):
+        with open('/etc/fstab') as fstab:
+            for line in fstab:
+                if self.scalitydisk in line:
+                    uuid = line.split(" ")[0]
+                    uuid = uuid.split('UUID=')
+                    return(uuid)
+
     def find_disk(self, device, component):
         output = self.hpacucli_output()
         naa = self.find_naa(device)
@@ -358,7 +430,7 @@ class Scality():
         '''
         cmd = "df -h | grep {}".format(device)
         mount_point = subprocess.getoutput(cmd).split(" ")[-1]
-        if not  mount_point:
+        if not mount_point:
             Disk_uuid = self.get_uuid(device)
             if Disk_uuid or (mount_point and self.get_device):
                 with open("/etc/fstab") as fstab:
