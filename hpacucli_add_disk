@@ -41,6 +41,7 @@ class Scality():
        self.slot = None
        self.ld = None
        self.pd = None
+       self.lock_file = None
        self.fstype = 'ext4'
        self.smart = []
        self.logical = []
@@ -144,8 +145,9 @@ class Scality():
        if not self.device or not self.scalitydisk:
            self.error_exit('Error : cant determinate device or/and scalitydisk')
 
-
-       lock_file = '/var/run/scality/disk-{}'.format(self.scalitydisk)
+       #enable locking and dislocking disk to prevent multiple wipe and/or replacing disk####
+       #if lock file exist : we check it created time : if > 360s : we delete lock, else, we stop wipe or replace processing
+       self.lock_file = '/var/run/scality/disk-{}'.format(self.scalitydisk)
        if  os.path.isfile(lock_file):
            if  time.time() - os.path.getmtime(lock_file) > 360:
                self.printing_message('Info', '[Scality] cleaning lock of disk{}'.format(self.scalitydisk))
