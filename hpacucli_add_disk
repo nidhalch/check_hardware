@@ -388,7 +388,7 @@ class Scality():
                     return(uuid)
 
     def find_disk(self, device, component):
-        self.printing_message("Info", "[HP] Start Slot, LD and PD identification : {}".format(pd))
+        self.printing_message("Info", "[HP] Start Slot, LD and PD identification : {}".format(device))
         output = self.hpacucli_output()
         naa = self.find_naa(device)
         ld, pd, ctrl = self.list_pd_ld(output)
@@ -396,6 +396,7 @@ class Scality():
             for element in ld:
                 id_logical = element.split(" ")[1]
                 for slot in range(0, ctrl):
+                    self.printing_message("Info", "[HP] Scan slot=[{}] to get LD=[{}] information : {}".format(slot,id_logical))
                     detail_ld = subprocess.getoutput("hpacucli ctrl slot={} ld {} show detail".format(slot, id_logical))
                     if not naa:
                         if device in detail_ld:
