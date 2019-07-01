@@ -257,7 +257,7 @@ class Scality():
                 self.error_exit("Error", "The disk {} was not changed or not detected after replace\n {}".format(pd, check_status))
         disk_list = self.disks_list()
         self.printing_message("Notification", "[Scality] Create the corresponding RAID0 : {}".format(pd))
-        raid_rc = subprocess.call('hpssacli controller slot={} create type=logicaldrive drives={} raid=0'.format(slot, pd))
+        raid_rc = subprocess.call('hpssacli controller slot={} create type=logicaldrive drives={} raid=0'.format(slot, pd), shell=True)
         if raid_rc != 0:
             self.error_exit("Error when creating RAID0")
         p_disk = self.detect_new_disk(disk_list)
