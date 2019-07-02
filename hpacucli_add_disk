@@ -62,6 +62,15 @@ class Scality():
        :self.disk_uuid = UId of disk after changing it
        :self.mount_p = mount point : /mnt/diskxx
        '''
+       #Usage  ########################################################## 
+       '''
+       wipe a not failed disk : dm-disk-management --wipe --device /dev/sdxx
+       wipe a not failed disk : dm-disk-management --wipe --scaldisk 30 or disk30
+       wipe a ex failed disk : thats have new UUID : we must force the scality disk: dm-disk-management :
+       --wipe --scaldisk 30 --device /dev/sdxx
+       replace faulty disk : dm-disk-management --replace --scaldisk 30 --physicaldrive xx:xx:xx
+       '''
+      
        # Check if storcli binary exist and cluster is health ##################
        self.manufacturer = subprocess.getoutput('dmidecode -s system-manufacturer')
        self.hpacucli_binary = self.find_program_binary("hpacucli")
@@ -85,6 +94,11 @@ class Scality():
            self.replace = args.replace
        if args.device:
            self.device = args.device#--device name : sdxx
+           if "/dev/" in self.device:
+              stat.S_ISBLK(os.stat(self.device).st_mode)
+           else:
+              stat.S_ISBLK(os.stat("/dev/" + self.device).st_mode)
+              self.device = "/dev/{}".format(self.device)
        if args.scaldisk:
            self.scaldisk = args.scaldisk#--scaldisk name : diskxx
        if args.physicaldrive :
@@ -101,18 +115,14 @@ class Scality():
           self.device = self.disk_management(self.slot, self.ld, self.pd)
           self.mount_p = self.found_mount_p(self.device)
           self.disk_uuid_old = self.find_uuid_unknow_device(self.scalitydisk)
-
+        
         # Set vars if --wipe + --device  #######################################
        '''
         this option is usable when one wants to replace or to format a disk
         the only argument to give: it is the device: /dev/sdxx
        '''
-       if (args.wipe or args.replace) and args.device:
-          if "/dev/" in self.device:
-              stat.S_ISBLK(os.stat(self.device).st_mode)
-          else:
-              stat.S_ISBLK(os.stat("/dev/" + self.device).st_mode)
-              self.device = "/dev/{}".format(self.device)
+       if (args.wipe or args.replace) and ((args.device and args.scaldisk) or args.device):
+          print('test')
           self.slot, self.ld, self.pd = self.find_pd(self.device, "logical")
           if self.slot and self.ld and self.pd :
               self.check_pd_ld_status(self.slot, self.ld, self.pd)
@@ -123,14 +133,20 @@ class Scality():
           self.mount_point = self.mount_point.lstrip('\"')
           self.scalitydisk = self.mount_point.replace("'", "")
           self.disk_uuid_old = self.get_uuid(self.device)
-
+          if not self.mount_p and not args.scaldisk:
+              self.error_exit('Error : disk {} with UUID:{} not found on fstab\n Must use --wipe + --wipe device + --scaldisk to set the scality disk that will use this device'.format(self.device, self.disk_uuid_old))
+          elif self.mount_p and args.scaldisk:
+              self.scalitydisk = self.scaldisk
+              self.disk_uuid_old = self.find_uuid_unknow_device(self.device)
+              print(self.disk_uuid_old)
+             
        # Set vars if --oio + --wipe  ################################################################
        #find the disk against the oiodisk given
        '''
        this option is usable when one wants to place or to format a disk
        the only argument to give: it is the scalitydisk: diskxx:
        '''
-       if (args.wipe or args.replace) and args.scaldisk:
+       if (args.wipe or args.replace) and args.scaldisk and not args.device:
            if "disk" in self.scaldisk:
                self.scaldisk = self.scaldisk.split("disk")
            self.scalitydisk = self.scaldisk
@@ -257,7 +273,7 @@ class Scality():
                 self.error_exit("Error", "The disk {} was not changed or not detected after replace\n {}".format(pd, check_status))
         disk_list = self.disks_list()
         self.printing_message("Notification", "[Scality] Create the corresponding RAID0 : {}".format(pd))
-        raid_rc = subprocess.call('hpssacli controller slot={} create type=logicaldrive drives={} raid=0'.format(slot, pd), shell=True)
+        raid_rc = subprocess.call('hpssacli controller slot={} create type=logicaldrive drives={} raid=0'.format(slot, pd))
         if raid_rc != 0:
             self.error_exit("Error when creating RAID0")
         p_disk = self.detect_new_disk(disk_list)
@@ -406,12 +422,16 @@ class Scality():
         return(self.logical, self.physical, self.ctrl_nb)
 
     def find_uuid_unknow_device(self, scalitydisk):
-        with open('/etc/fstab') as fstab:
-            for line in fstab:
-                if scalitydisk in line:
-                    uuid = line.split(" ")[0]
-                    uuid = uuid.split('UUID=')
-                    return(''.join(uuid))
+        if self.device:
+            uuid = self.get_uuid(self.device)
+            return(uuid)
+        else:
+            with open('/etc/fstab') as fstab:
+                for line in fstab:
+                    if scalitydisk in line:
+                        uuid = line.split(" ")[0]
+                        uuid = uuid.split('UUID=')
+                        return(''.join(uuid))
 
     def hpacucli_output(self):
         hpacucli = subprocess.Popen(['sudo', 'hpacucli', 'ctrl', 'all', 'show', 'config'], stdout=subprocess.PIPE)
